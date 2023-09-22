@@ -163,6 +163,9 @@ private:
   // The QoS used for the image subscriptions
   const rmw_qos_profile_t image_qos_;
 
+  std::string time_sync_policy_str_;
+  double approximate_sync_max_interval_s_ = 0.05;
+
   // Subscribers
   message_filters::Subscriber<sensor_msgs::msg::Image> left_image_sub_;
   message_filters::Subscriber<sensor_msgs::msg::CameraInfo> left_camera_info_sub_;

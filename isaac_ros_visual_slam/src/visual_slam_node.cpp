@@ -30,6 +30,7 @@
 #include "isaac_ros_visual_slam/impl/has_subscribers.hpp"
 #include "isaac_ros_visual_slam/impl/stopwatch.hpp"
 #include "isaac_ros_visual_slam/impl/qos.hpp"
+#include "isaac_ros_visual_slam/impl/time_sync_policy.hpp"
 
 namespace isaac_ros
 {
@@ -77,6 +78,10 @@ VisualSlamNode::VisualSlamNode(rclcpp::NodeOptions options)
 
   msg_filter_queue_size_(declare_parameter<int>("msg_filter_queue_size", 100)),
   image_qos_(parseQosString(declare_parameter<std::string>("image_qos", "SENSOR_DATA"))),
+
+  time_sync_policy_str_(declare_parameter<std::string>("time_sync_policy", "approximate")),
+  approximate_sync_max_interval_s_(declare_parameter<double>("approximate_sync_max_interval_s", 0.05)),
+
   // Subscribers
   left_image_sub_(message_filters::Subscriber<sensor_msgs::msg::Image>(
       this, "stereo_camera/left/image", image_qos_)),
@@ -194,18 +199,39 @@ VisualSlamNode::VisualSlamNode(rclcpp::NodeOptions options)
   CUVSLAM_WarmUpGPU();
   RCLCPP_INFO(get_logger(), "Time taken by CUVSLAM_WarmUpGPU(): %f", ssw_gpu.Stop());
 
-  impl_->sync.reset(
-    new VisualSlamImpl::Synchronizer(
-      VisualSlamImpl::ExactTime(msg_filter_queue_size_),
-      left_image_sub_,
-      left_camera_info_sub_,
-      right_image_sub_,
-      right_camera_info_sub_
-  ));
-  impl_->sync->registerCallback(
-    std::bind(
-      &VisualSlamNode::TrackCameraPose, this, std::placeholders::_1,
-      std::placeholders::_2, std::placeholders::_3, std::placeholders::_4));
+  TIME_SYNC_POLICY time_sync_policy = parseTimeSyncPolicyString(time_sync_policy_str_);
+
+  if (time_sync_policy == TIME_SYNC_POLICY::EXACT)
+  {
+    impl_->sync.reset(
+      new VisualSlamImpl::Synchronizer(
+        VisualSlamImpl::ExactTime(msg_filter_queue_size_),
+        left_image_sub_,
+        left_camera_info_sub_,
+        right_image_sub_,
+        right_camera_info_sub_
+    ));
+    impl_->sync->registerCallback(
+      std::bind(
+        &VisualSlamNode::TrackCameraPose, this, std::placeholders::_1,
+        std::placeholders::_2, std::placeholders::_3, std::placeholders::_4));
+  } else if (time_sync_policy == TIME_SYNC_POLICY::APPROXIMATE) {
+    impl_->approximate_sync.reset(
+      new VisualSlamImpl::ApproximateSynchronizer(
+        VisualSlamImpl::ApproximateTime(msg_filter_queue_size_),
+        left_image_sub_,
+        left_camera_info_sub_,
+        right_image_sub_,
+        right_camera_info_sub_
+    ));
+    impl_->approximate_sync->setMaxIntervalDuration(rclcpp::Duration(std::chrono::duration<double>(approximate_sync_max_interval_s_)));
+    impl_->approximate_sync->registerCallback(
+      std::bind(
+        &VisualSlamNode::TrackCameraPose, this, std::placeholders::_1,
+        std::placeholders::_2, std::placeholders::_3, std::placeholders::_4));
+  } else {
+    RCLCPP_FATAL(get_logger(), "Some unexpected policy is parsed. horribly wrong");
+  }
 
   load_map_and_localize_server_ =
     rclcpp_action::create_server<isaac_ros_visual_slam_interfaces::action::LoadMapAndLocalize>(
