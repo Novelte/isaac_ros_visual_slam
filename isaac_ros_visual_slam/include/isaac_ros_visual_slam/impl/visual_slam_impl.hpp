@@ -32,6 +32,7 @@
 #include "isaac_ros_visual_slam/visual_slam_node.hpp"
 #include "message_filters/synchronizer.h"
 #include "message_filters/sync_policies/exact_time.h"
+#include "message_filters/sync_policies/approximate_time.h"
 #include "rclcpp/rclcpp.hpp"
 #include "tf2/LinearMath/Transform.h"
 #include "tf2_ros/buffer.h"
@@ -128,6 +129,14 @@ struct VisualSlamNode::VisualSlamImpl
     sensor_msgs::msg::CameraInfo>;
   using Synchronizer = message_filters::Synchronizer<ExactTime>;
   std::shared_ptr<Synchronizer> sync;
+
+  using ApproximateTime = message_filters::sync_policies::ApproximateTime<
+    sensor_msgs::msg::Image,
+    sensor_msgs::msg::CameraInfo,
+    sensor_msgs::msg::Image,
+    sensor_msgs::msg::CameraInfo>;
+  using ApproximateSynchronizer = message_filters::Synchronizer<ApproximateTime>;
+  std::shared_ptr<ApproximateSynchronizer> approximate_sync;
 
   // cuVSLAM handle to call cuVSLAM API.
   CUVSLAM_TrackerHandle cuvslam_handle = nullptr;
